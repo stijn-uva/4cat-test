@@ -62,13 +62,42 @@ def make_version_comparable(version):
 	return version[0].zfill(3) + "." + version[1].zfill(3)
 
 
+def finish(args):
+	"""
+	Finish migration
+
+	We might want to finish without running everything in the migration, so
+	this is made a function that can be called from any point in the script to
+	wrap up and exit.
+	"""
+	print("\n- Migration finished.")
+	print("  You can now safely restart 4CAT.\n")
+
+	if args.restart:
+		print("- Triggering a WSGI reload by touching 4cat.wsgi...")
+		Path("webtool/4cat.wsgi").touch()
+
+		print("- Trying to restart daemon...")
+		result = subprocess.run([interpreter, "4cat-daemon.py", "start"], stdout=subprocess.PIPE,
+								stderr=subprocess.PIPE)
+
+		if "error" in result.stdout.decode("utf-8"):
+			print("Could not start 4CAT daemon. Please inspect the error message and restart it manually:\n")
+			print(result.stdout.decode("utf-8"))
+			print(result.stderr.decode("ascii"))
+			exit(1)
+		else:
+			print("  ...done.")
+
+	exit(0)
+
+
 cli = argparse.ArgumentParser()
 cli.add_argument("--yes", "-y", default=False, action="store_true", help="Answer 'yes' to all prompts")
 cli.add_argument("--pull", "-p", default=False, action="store_true", help="Pull and check out the latest 4CAT master branch commit from Github before migrating")
 cli.add_argument("--release", "-l", default=False, action="store_true", help="Pull and check out the latest 4CAT release from Github before migrating")
 cli.add_argument("--repository", "-r", default="https://github.com/digitalmethodsinitiative/4cat.git", help="URL of the repository to pull from")
 cli.add_argument("--restart", "-x", default=False, action="store_true", help="Try to restart the 4CAT daemon after finishing migration, and 'touch' the WSGI file to trigger a front-end reload")
-cli.add_argument("--current_version_location", "-v", default=".current-version", help="File path to .current_version file")
 args = cli.parse_args()
 
 print("")
@@ -83,7 +112,14 @@ print("Pull code from master:   " + ("yes" if args.pull else "no"))
 print("Pull latest release:     " + ("yes" if args.release else "no"))
 print("Restart after migration: " + ("yes" if args.restart else "no"))
 print("Repository URL:          " + args.repository)
-print("Version file:            " + args.current_version_location)
+
+# ---------------------------------------------
+#          Account for new location of
+#          .current-version since 1.29
+# ---------------------------------------------
+if Path(".current-version").exists() and not Path("config/.current-version").exists():
+	print("Moving .current-version to new location")
+	Path(".current-version").rename(Path("config/.current-version"))
 
 # ---------------------------------------------
 #      Try to stop 4CAT if it is running
@@ -136,7 +172,7 @@ if args.pull and not args.release:
 #     Determine current and target versions
 # ---------------------------------------------
 target_version_file = Path("VERSION")
-current_version_file = Path(args.current_version_location)
+current_version_file = Path("config/.current_version")
 target_version, target_version_c, current_version, current_version_c = get_versions(target_version_file, current_version_file)
 
 migrate_to_run = []
@@ -184,8 +220,6 @@ if args.release:
 
 	if "Already up to date" in str(result.stdout):
 		print("  ...latest release is already checked out.")
-	else:
-		print(result.stdout.decode("ascii"))
 
 	print("  ...done\n")
 
@@ -199,15 +233,15 @@ print("- Version last migrated to: %s" % current_version)
 print("- Code version: %s" % target_version)
 
 if current_version == target_version:
-	print("Already up to date.\n")
-	exit(0)
+	print("  ...already up to date.")
+	finish(args)
 
 if current_version_c[0:3] != target_version_c[0:3]:
-	print("Cannot migrate between different major versions.\n")
+	print("  ...cannot migrate between different major versions.")
 	exit(1)
 
 if current_version_c > target_version_c:
-	print("Checked out version is older than version last migrated to. Cannot migrate to older version.\n")
+	print("  ...checked out version is older than version last migrated to. Cannot migrate to older version.")
 	print("WARNING: 4CAT may not function correctly. Consider re-installing.")
 	exit(1)
 
@@ -237,7 +271,13 @@ else:
 # ---------------------------------------------
 print("- Running pip to install any new dependencies (this could take a moment)...")
 try:
-	pip = subprocess.check_call([interpreter, "-m", "pip", "install", "-r", "requirements.txt"])
+	pip = subprocess.run([interpreter, "-m", "pip", "install", "-r", "requirements.txt"],
+								stderr=subprocess.STDOUT, stdout=subprocess.PIPE, check=True)
+	for line in pip.stdout.decode("utf-8").split("\n"):
+		if line.startswith("Requirement already satisfied:"):
+			# eliminate some noise in the output
+			continue
+		print("  " + line)
 except subprocess.CalledProcessError as e:
 	print(e)
 	print("\n  Error running pip. You may need to run this script with elevated privileges (e.g. sudo).\n")
@@ -277,7 +317,7 @@ for file in migrate_to_run:
 print("- Copying VERSION...")
 if current_version_file.exists():
 	current_version_file.unlink()
-shutil.copy(target_version_file, args.current_version_location)
+shutil.copy(target_version_file, current_version_file)
 print("  ...done")
 
 
@@ -295,22 +335,7 @@ try:
 except LookupError:
 	nltk.download("wordnet")
 
-print("\n- Migration scripts finished.")
-print("  It is recommended to re-generate your Sphinx configuration and index files to account for database updates.")
-print("  You can now safely restart 4CAT.\n")
-
-if args.restart:
-	print("- Triggering a WSGI reload by touching 4cat.wsgi...")
-	Path("webtool/4cat.wsgi").touch()
-
-	print("- Trying to restart daemon...")
-	result = subprocess.run([interpreter, "4cat-daemon.py", "start"], stdout=subprocess.PIPE,
-							stderr=subprocess.PIPE)
-
-	if "error" in result.stdout.decode("utf-8"):
-		print("Could not start 4CAT daemon. Please inspect the error message and restart it manually:\n")
-		print(result.stdout.decode("utf-8"))
-		print(result.stderr.decode("ascii"))
-		exit(1)
-	else:
-		print("  ...done.")
+# ---------------------------------------------
+#            Done! Wrap up and finish
+# ---------------------------------------------
+finish(args)
