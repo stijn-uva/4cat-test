@@ -98,7 +98,8 @@ else:
     in_docker = False
     config_path = Path(__file__).parent.parent.parent.joinpath("config/config.ini")
     if config_path.exists():
-        config_reader = configparser.ConfigParser().read(config_path)
+        config_reader = configparser.ConfigParser()
+        config_reader.read(config_path)
         in_docker = config_reader["DOCKER"].getboolean("use_docker_config")
         print("yes" if in_docker else "no")
     else:
