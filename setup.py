@@ -48,7 +48,7 @@ packages = [
 	"scikit-learn",
 	"scenedetect==0.6.0.3",
 	"shapely",
-	"spacy==3.4.3",
+	#"spacy==3.4.3",
 	"svgwrite~=1.4.0",
 	"Telethon~=1.25.2",
 	"typing_extensions<4.6.0",
