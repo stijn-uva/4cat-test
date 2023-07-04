@@ -288,6 +288,8 @@ if args.release or args.branch:
 # ---------------------------------------------
 logger.info("- Version last migrated to: %s" % current_version)
 logger.info("- Code version: %s" % target_version)
+# this sleep is here to give anything automating migrate time to catch up
+time.sleep(2)
 
 if current_version == target_version:
 	logger.info("  ...already up to date.")
@@ -344,6 +346,7 @@ logger.info("  ...done")
 # ---------------------------------------------
 #       Run individual migration scripts
 # ---------------------------------------------
+
 if migrate_to_run:
 	logger.info("\n- Starting migration...")
 	logger.info("  %i scripts will be run." % len(migrate_to_run))
